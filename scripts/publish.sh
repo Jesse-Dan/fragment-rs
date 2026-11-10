@@ -66,15 +66,19 @@ publish_one() {
     attempt=1
     while [ "$attempt" -le 12 ]; do
         log=$(mktemp)
-        if cargo publish --package "$crate" --allow-dirty 2>&1 | tee "$log"; then
+        # The output goes to the log first, because a pipeline would report
+        # the status of the last command rather than of cargo.
+        if cargo publish --package "$crate" --allow-dirty >"$log" 2>&1; then
+            cat "$log"
             rm -f "$log"
             echo "Published $crate"
             return
         fi
+        cat "$log"
 
         # A token that is not accepted will not be accepted on the next
         # attempt either, so there is no point in waiting.
-        if grep -qiE "invalid token|unauthorized|not authorized|401|403|forbidden|missing or invalid" "$log"; then
+        if grep -qiE "invalid token|unauthorized|not authorized|401|403|forbidden|missing or invalid|required permissions" "$log"; then
             rm -f "$log"
             echo "crates.io rejected the token. Check CARGO_REGISTRY_TOKEN in .env." >&2
             echo "It needs the 'publish-new-crate' scope the first time." >&2
