@@ -1,6 +1,6 @@
 [package]
 name = "fragment-rs"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["Jesse Dan <jesse.dan@example.com>"]
 description = """A Spring Boot-inspired web framework for Rust powered by Axum. Zero config, zero manual registration. Auto DI, validation, and OpenAPI docs."""
@@ -13,7 +13,7 @@ categories = ["async", "web-programming::http-server"]
 readme = "README.md"
 
 [dependencies]
-fragment-macros = { path = "../fragment-macros", version = "0.2.4" }
+fragment-macros = { path = "../fragment-macros", version = "0.2.5" }
 axum = "0.7"
 inventory = "0.3"
 tower = { version = "0.4", features = ["util"] }
