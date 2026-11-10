@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  # A release can be run again by hand from the Actions tab.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -88,29 +90,29 @@ jobs:
             dist/frs-*
             dist/SHA256SUMS
 
-  # Publishes the crates to crates.io. The job is skipped when the registry
-  # token is not configured, so a fork can still cut a release.
+  # Publishes the crates to crates.io. The steps are skipped when the
+  # registry token is not configured, so a fork can still cut a release.
   publish-crate:
     name: Publish crates to crates.io
     needs: build
-    if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish fragment-macros
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: cargo publish --package fragment-macros
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: Wait for crates.io to index the macros
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: sleep 60
       - name: Publish fragment-rs
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: cargo publish --package fragment-rs
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: Wait for crates.io to index the framework
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: sleep 60
       - name: Publish frs-cli
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: cargo publish --package frs-cli
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
