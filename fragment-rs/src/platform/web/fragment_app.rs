@@ -1,10 +1,21 @@
 use crate::core::container::DIContainer;
+use crate::shared::config::{ConfigError, FragmentConfig};
 use crate::shared::FragmentLogger;
 use axum::http::Method;
+use axum::response::IntoResponse;
+use std::path::Path;
 
 pub struct FragmentApp {
-    host: String,
-    port: u16,
+    /// The address set by the application code.
+    host: Option<String>,
+    port: Option<u16>,
+    /// The log level set by the application code.
+    log_level: Option<String>,
+    /// The address read from `fragment.toml`.
+    file_host: Option<String>,
+    file_port: Option<u16>,
+    /// The log level read from `fragment.toml`.
+    file_log_level: Option<String>,
     auto_scan: bool,
     compression: bool,
     cors: CorsConfig,
@@ -29,8 +40,12 @@ pub struct FileUploadConfig {
 impl FragmentApp {
     pub fn new() -> Self {
         Self {
-            host: "0.0.0.0".into(),
-            port: 3000,
+            host: None,
+            port: None,
+            log_level: None,
+            file_host: None,
+            file_port: None,
+            file_log_level: None,
             auto_scan: true,
             compression: false,
             cors: CorsConfig {
@@ -49,14 +64,115 @@ impl FragmentApp {
         }
     }
 
+    /// Build the application from a `fragment.toml` file.
+    ///
+    /// The file is optional. When it is not there the application starts with
+    /// its defaults, so a project runs before it has been configured. When it
+    /// is there but cannot be read or parsed, the error is returned rather
+    /// than silently ignored.
+    ///
+    /// ```rust,ignore
+    /// use fragment_rs::FragmentApp;
+    ///
+    /// FragmentApp::from_config_file("fragment.toml")?.start().await;
+    /// ```
+    pub fn from_config_file(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(Self::new());
+        }
+        Ok(Self::from_config(FragmentConfig::load(path)?))
+    }
+
+    /// Build the application from a `fragment.toml` file, ignoring any
+    /// problem with the file.
+    ///
+    /// Use this when a missing or broken configuration file should not stop
+    /// the application from starting.
+    pub fn from_config_file_or_default(path: impl AsRef<Path>) -> Self {
+        Self::from_config_file(path).unwrap_or_default()
+    }
+
+    /// Apply a parsed configuration.
+    ///
+    /// Only the settings the application acts on are applied: the server
+    /// address and the log level. Everything else in the file is used by the
+    /// components that own it.
+    pub fn from_config(config: FragmentConfig) -> Self {
+        let mut app = Self::new();
+        if let Some(server) = &config.server {
+            app.file_host = server.host.clone();
+            app.file_port = server.port;
+        }
+        if let Some(logging) = &config.logging {
+            app.file_log_level = logging.level.clone();
+        }
+        app
+    }
+
+    /// The address the server binds to.
+    ///
+    /// An explicit `host` or `port` wins, then the `FRAGMENT_HOST` and
+    /// `FRAGMENT_PORT` environment variables, then the values from
+    /// `fragment.toml`, then the defaults.
+    pub fn address(&self) -> (String, u16) {
+        let host = self
+            .host
+            .clone()
+            .filter(|host| !host.trim().is_empty())
+            .or_else(|| {
+                std::env::var("FRAGMENT_HOST")
+                    .ok()
+                    .filter(|host| !host.trim().is_empty())
+            })
+            .or_else(|| {
+                self.file_host
+                    .clone()
+                    .filter(|host| !host.trim().is_empty())
+            })
+            .unwrap_or_else(|| "0.0.0.0".to_owned());
+        let port = self
+            .port
+            .or_else(|| {
+                std::env::var("FRAGMENT_PORT")
+                    .ok()
+                    .and_then(|port| port.trim().parse().ok())
+            })
+            .or(self.file_port)
+            .unwrap_or(3000);
+        (host, port)
+    }
+
     pub fn host(mut self, host: &str) -> Self {
-        self.host = host.into();
+        self.host = Some(host.into());
         self
     }
 
     pub fn port(mut self, port: u16) -> Self {
-        self.port = port;
+        self.port = Some(port);
         self
+    }
+
+    /// Set the log level used when `RUST_LOG` is not set.
+    pub fn log_level(mut self, level: &str) -> Self {
+        self.log_level = Some(level.into());
+        self
+    }
+
+    /// The log level the application was configured with.
+    ///
+    /// An explicit level wins, then `FRAGMENT_LOG_LEVEL`, then the one from
+    /// `fragment.toml`. The `RUST_LOG` environment variable still wins over
+    /// all of them, because that is what an operator reaches for.
+    pub fn configured_log_level(&self) -> Option<String> {
+        self.log_level
+            .clone()
+            .or_else(|| {
+                std::env::var("FRAGMENT_LOG_LEVEL")
+                    .ok()
+                    .filter(|level| !level.trim().is_empty())
+            })
+            .or_else(|| self.file_log_level.clone())
     }
 
     pub fn auto_scan(mut self, enabled: bool) -> Self {
@@ -149,8 +265,12 @@ impl FragmentApp {
     }
 
     pub async fn start(self) {
-        FragmentLogger::init();
+        FragmentLogger::init_with_level(self.configured_log_level().as_deref());
         DIContainer::auto_register_services();
+
+        // Plugins get a chance to set themselves up before the first
+        // request arrives.
+        crate::plugins::PluginManager::init_all().await;
 
         let mut router = axum::Router::new();
 
@@ -201,7 +321,12 @@ impl FragmentApp {
             router = register(router);
         }
 
-        let addr = format!("{}:{}", self.host, self.port);
+        // A route that does not exist answers with the same error envelope
+        // as every other error, rather than axum's plain-text default.
+        router = router.fallback(not_found);
+
+        let (host, port) = self.address();
+        let addr = format!("{host}:{port}");
         tracing::info!("listening on http://{}", addr);
 
         let listener = tokio::net::TcpListener::bind(&addr)
@@ -210,6 +335,11 @@ impl FragmentApp {
 
         axum::serve(listener, router).await.expect("server error");
     }
+}
+
+/// The response for a route that does not exist.
+async fn not_found(uri: axum::http::Uri) -> axum::response::Response {
+    crate::shared::FragmentError::NotFound(format!("No route for {}", uri.path())).into_response()
 }
 
 impl Default for FragmentApp {

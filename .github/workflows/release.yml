@@ -58,6 +58,9 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/frs.exe" dist/frs.exe
           Compress-Archive -Path dist/frs.exe -DestinationPath "${{ matrix.asset }}.zip" -Force
+          # A tar archive as well, so `frs update` can unpack every platform
+          # the same way.
+          tar -C dist -czf ${{ matrix.asset }}.tar.gz frs.exe
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -84,3 +87,30 @@ jobs:
           files: |
             dist/frs-*
             dist/SHA256SUMS
+
+  # Publishes the crates to crates.io. The job is skipped when the registry
+  # token is not configured, so a fork can still cut a release.
+  publish-crate:
+    name: Publish crates to crates.io
+    needs: build
+    if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish fragment-macros
+        run: cargo publish --package fragment-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Wait for crates.io to index the macros
+        run: sleep 60
+      - name: Publish fragment-rs
+        run: cargo publish --package fragment-rs
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Wait for crates.io to index the framework
+        run: sleep 60
+      - name: Publish frs-cli
+        run: cargo publish --package frs-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

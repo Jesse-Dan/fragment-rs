@@ -1,7 +1,7 @@
 # Fragment Rust
 
 [![Release](https://img.shields.io/github/v/release/Jesse-Dan/fragment-rs)](https://github.com/Jesse-Dan/fragment-rs/releases/latest)
-[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Fragment Rust is a Spring Boot-inspired web framework built on Axum. It provides a Rust CLI, application scaffolding, controller and service macros, validation, structured errors, and SeaORM-backed multi-database access.
 
@@ -20,6 +20,18 @@ irm https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install
 ```
 
 This installs the latest release of the `frs` CLI into `~/.local/bin` and puts it on your `PATH`. See [Installation](docs/INSTALL.md) for the other options.
+
+From crates.io:
+
+```sh
+cargo install frs-cli
+```
+
+To update an installed copy:
+
+```sh
+frs update
+```
 
 ## Start here
 
@@ -64,7 +76,9 @@ impl CustomerController {
 
 #[tokio::main]
 async fn main() {
-    FragmentApp::new().port(3000).start().await;
+    FragmentApp::from_config_file_or_default("fragment.toml")
+        .start()
+        .await;
 }
 ```
 
@@ -72,6 +86,26 @@ Controllers and services register themselves, so there is nothing to wire up.
 `GET /api/customers` answers with the list. The prefix and the route path are
 joined without a trailing slash, so `#[route(GET, "/")]` under
 `/api/customers` serves `/api/customers`.
+
+## Configuration
+
+The generated application reads `fragment.toml`:
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[logging]
+level = "info"
+
+[databases.primary]
+url = "postgres://postgres:postgres@localhost/fragment"
+```
+
+An explicit setting in the code wins, then `FRAGMENT_HOST` and
+`FRAGMENT_PORT`, then the file, then the defaults. See
+[Configuration](docs/CONFIGURATION.md).
 
 ## Generate a module
 
@@ -147,4 +181,10 @@ See [ORM and databases](docs/ORM.md), and run `cargo run -p fragment-rs --exampl
 
 ## Development status and contributions
 
-The CLI scaffolds structure and Rust source files; generated controller/service files are starting points and require application logic. It does not currently perform automatic component discovery, generate runnable HTTP route handlers, or execute migrations. Contributions and issue reports are welcome; see [Development and releases](docs/DEVELOPMENT.md).
+The CLI scaffolds structure and Rust source files; generated controller and service files are starting points and require application logic. Controllers and services register themselves at startup, so an application usually needs no wiring code. `frs make:migration --generate` compares the entities against the live database and writes an additive migration; it never changes the database and never applies a migration. Contributions and issue reports are welcome; see [Development and releases](docs/DEVELOPMENT.md).
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

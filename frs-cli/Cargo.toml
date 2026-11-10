@@ -4,8 +4,10 @@ version = "0.2.1"
 edition = "2021"
 description = "Command-line tools for creating and managing Fragment Rust applications"
 license = "MIT OR Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/Jesse-Dan/fragment-rs"
 homepage = "https://github.com/Jesse-Dan/fragment-rs"
+documentation = "https://docs.rs/frs-cli"
 keywords = ["cli", "scaffolding", "fragment", "axum"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -19,6 +21,10 @@ sea-orm = { version = "1.1", default-features = false, features = [
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 toml = "0.8"
+# `frs update` downloads the latest release and unpacks it.
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
+tar = "0.4"
+flate2 = "1"
 
 [[bin]]
 name = "frs"

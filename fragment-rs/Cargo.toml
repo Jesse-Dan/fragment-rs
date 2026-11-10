@@ -10,7 +10,7 @@ homepage = "https://github.com/Jesse-Dan/fragment-rs"
 documentation = "https://docs.rs/fragment-rs"
 keywords = ["web", "axum", "framework", "api", "rust"]
 categories = ["async", "web-programming::http-server"]
-readme = "../README.md"
+readme = "README.md"
 
 [dependencies]
 fragment-macros = { path = "../fragment-macros", version = "0.2.1" }
@@ -50,6 +50,3 @@ http = "1"
 tower = "0.4"
 tempfile = "3"
 
-[[example]]
-name = "quickstart_demo"
-path = "../examples/quickstart.rs"

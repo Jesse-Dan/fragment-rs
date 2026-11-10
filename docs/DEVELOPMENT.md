@@ -11,8 +11,8 @@ published.
 ├── fragment-macros/      the procedural macros
 ├── frs-cli/              the `frs` command-line tool
 ├── docs/                 the documentation
-├── examples/             runnable examples
-└── scripts/              the installers
+├── scripts/              the installers, the release script, the publish script
+└── .github/workflows/    the CI and release pipelines
 ```
 
 | Crate | Publishes | Purpose |
@@ -58,7 +58,7 @@ a user does.
 cargo run -p fragment-rs --example orm_entities
 cargo run -p fragment-rs --example multi_database
 cargo run -p fragment-rs --example customers_api
-cargo run --example quickstart_demo
+cargo run -p fragment-rs --example quickstart_demo
 ```
 
 ## Working on the CLI
@@ -105,20 +105,58 @@ compile error.
 
 ## Releasing
 
-Releases are triggered by pushing a tag that starts with `v`:
-
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+./scripts/release.sh 0.3.0      # bump the version, tag, push, and publish
+./scripts/release.sh --dry-run  # show what would happen
 ```
 
-The workflow in `.github/workflows/release.yml` then:
+The script bumps the version in every crate, refreshes `Cargo.lock`, commits,
+creates an annotated tag, and pushes both. Pushing the tag starts the
+workflow in `.github/workflows/release.yml`, which:
 
 1. runs `cargo test --workspace --locked`,
 2. builds `frs` for Linux x86_64, macOS x86_64, macOS arm64, and Windows x86_64,
 3. publishes the archives and a `SHA256SUMS` file as a GitHub release.
 
-The installers verify that checksum before installing anything.
+The script refuses to run when the working tree has changes or when the tag
+already exists. Pass `--no-publish` to skip the crates.io publish.
+
+### Publishing to crates.io
+
+The crates are published in dependency order: the macros first, then the
+framework, then the CLI. crates.io needs a moment to index a crate before
+another crate can depend on it, so each step waits.
+
+Put the token in `.env` in the project root. The file is ignored by git, so
+the token is never committed:
+
+```sh
+cp .env.example .env
+$EDITOR .env          # CARGO_REGISTRY_TOKEN=...
+```
+
+Then release as usual. The release script publishes the crates after the tag
+is pushed:
+
+```sh
+./scripts/release.sh 0.3.0
+```
+
+To publish without tagging, run the publish script on its own:
+
+```sh
+./scripts/publish.sh
+./scripts/publish.sh --dry-run
+```
+
+The same token can be set as the `CARGO_REGISTRY_TOKEN` secret in the
+repository. The workflow then publishes the crates as well, in the same
+order. That job is skipped when the secret is not set, so a fork can still
+cut a release.
+
+The token needs the `publish-new-crate` scope the first time a crate is
+published, and `publish` after that. Create one at
+<https://crates.io/settings/tokens>.
 
 ### Before tagging
 
@@ -127,8 +165,6 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
-
-Bump the version in the crate manifests, then tag the commit.
 
 ## Installing a released CLI
 

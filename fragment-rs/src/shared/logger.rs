@@ -36,9 +36,21 @@ pub struct FragmentLogger;
 
 impl FragmentLogger {
     pub fn init() {
+        Self::init_with_level(None);
+    }
+
+    /// Initialise logging with a fallback level.
+    ///
+    /// `RUST_LOG` still wins, so an operator can turn up the verbosity
+    /// without editing the configuration file. The fallback is used when
+    /// `RUST_LOG` is not set.
+    pub fn init_with_level(level: Option<&str>) {
         INITIALIZED.get_or_init(|| {
-            let filter =
-                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                level
+                    .and_then(|level| EnvFilter::try_new(level).ok())
+                    .unwrap_or_else(|| EnvFilter::new("info"))
+            });
             tracing_subscriber::fmt()
                 .with_env_filter(filter)
                 .with_span_events(FmtSpan::CLOSE)

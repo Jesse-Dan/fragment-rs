@@ -5,13 +5,24 @@ scaffolds modules, and generates source-file starting points.
 
 ## Install
 
-### macOS and Linux
+### From crates.io
+
+```sh
+cargo install frs-cli
+```
+
+This is the usual way to install a Rust tool. It builds from source, so it
+needs a Rust toolchain, and it puts `frs` in `~/.cargo/bin`.
+
+### From a release
+
+#### macOS and Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install.sh | sh
 ```
 
-### Windows
+#### Windows
 
 ```powershell
 irm https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install.ps1 | iex
@@ -24,6 +35,17 @@ profile, so `frs` runs from anywhere. Open a new shell afterwards, or run:
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+The release binary is ready to run, with no build step.
+
+### Update
+
+```sh
+frs update
+```
+
+That replaces the running binary with the latest release. `frs update --check`
+reports the version it would install and changes nothing.
 
 ### Other directories
 
@@ -70,6 +92,9 @@ The token needs read access to the repository.
 | macOS | Apple Silicon | `frs-macos-arm64.tar.gz` |
 | Windows | x86_64 | `frs-windows-x64.zip` |
 
+Every release also publishes a `frs-windows-x64.tar.gz`, so `frs update` can
+unpack every platform the same way.
+
 Other platforms can install from source.
 
 ## Install from source
@@ -85,6 +110,12 @@ To replace an installed copy:
 
 ```sh
 cargo install --path frs-cli --locked --force
+```
+
+Or install straight from the repository, without cloning it:
+
+```sh
+cargo install --git https://github.com/Jesse-Dan/fragment-rs frs-cli --locked
 ```
 
 ## Verify the installation

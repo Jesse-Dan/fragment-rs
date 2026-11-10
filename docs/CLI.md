@@ -151,6 +151,33 @@ frs help
 - `doctor` reports the installed `rustc` and `cargo` versions.
 - `--path` / `-p` selects a project directory for `check`.
 
+## Update the CLI
+
+```sh
+frs update          # install the latest release
+frs update --check  # report whether there is a newer release
+```
+
+`frs update` downloads the latest release for the platform it is running on,
+checks the version of the downloaded binary, and replaces the running one.
+
+The release assets are named after the platform, and the name is the same for
+every release, so the latest one is fetched without asking the API which
+release is current.
+
+| Platform | Asset |
+|---|---|
+| Linux, x86_64 | `frs-linux-x64` |
+| Linux, aarch64 | `frs-linux-arm64` |
+| macOS, Apple Silicon | `frs-macos-arm64` |
+| macOS, Intel | `frs-macos-x64` |
+| Windows, x86_64 | `frs-windows-x64` |
+
+`--check` reports the version it found and leaves the binary alone.
+
+`FRAGMENT_RELEASE_BASE` points the updater somewhere else, which is what a
+mirror needs. `GITHUB_TOKEN` is sent when it is set, for a private repository.
+
 ## Full workflow example
 
 ```sh

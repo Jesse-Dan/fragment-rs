@@ -5,9 +5,10 @@ use std::process::{self, Command};
 
 mod entities;
 mod schema;
+mod update;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const MAIN_TEMPLATE: &str = "use fragment_rs::FragmentApp;\n\n#[tokio::main]\nasync fn main() {\n    // Controllers and services register themselves, so there is nothing to wire up.\n    FragmentApp::new().port(3000).start().await;\n}\n";
+const MAIN_TEMPLATE: &str = "use fragment_rs::FragmentApp;\n\n#[tokio::main]\nasync fn main() {\n    // Controllers and services register themselves, so there is nothing to wire up.\n    // The address and the log level come from `fragment.toml`.\n    FragmentApp::from_config_file_or_default(\"fragment.toml\")\n        .start()\n        .await;\n}\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Structure {
@@ -70,6 +71,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
         "add" => add_item(&args[1..])?,
         "check" => run_check(&args[1..])?,
         "doctor" => doctor(),
+        "update" => update::update(&args[1..])?,
         unknown => return Err(format!("unknown command `{unknown}`. Run `frs help`.")),
     }
     Ok(())
@@ -91,6 +93,7 @@ fn print_help() {
          \x20 make:migration <name> [-g]\n\
          \x20 check [--path DIR]                 Run cargo check\n\
          \x20 doctor                             Check Rust tooling\n\
+         \x20 update [--check]                   Update the CLI to the latest release\n\
          \x20 help                               Show this help\n\
          \x20 version                            Show CLI version\n\
          \n\
@@ -102,7 +105,8 @@ fn print_help() {
          \x20 frs make:entity user\n\
          \x20 frs make:migration create_users_table\n\
          \x20 frs make:migration -g --database-url postgres://localhost/app\n\
-         \x20 frs check"
+         \x20 frs check\n\
+         \x20 frs update"
     );
 }
 
@@ -1172,24 +1176,59 @@ fn migration_template(name: &str) -> String {
     )
 }
 
+/// The repository the framework lives in.
+const FRAMEWORK_REPOSITORY: &str = "https://github.com/Jesse-Dan/fragment-rs";
+
+/// The version of the framework this CLI belongs to.
+fn framework_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// The version requirement a generated project puts on `fragment-rs`.
+///
+/// The requirement is the major and minor of this CLI, so a project built by
+/// `frs 0.2.1` accepts any `0.2` release.
+fn framework_version_requirement() -> String {
+    let version = framework_version();
+    let mut parts = version.split('.');
+    let major = parts.next().unwrap_or("0");
+    let minor = parts.next().unwrap_or("0");
+    format!("{major}.{minor}")
+}
+
+/// The release a generated project builds against.
+///
+/// The tag matches the version of the CLI, so a project built by a released
+/// CLI always uses the matching release of the framework.
+fn framework_release_tag() -> String {
+    format!("v{}", framework_version())
+}
+
 fn project_manifest(name: &str) -> String {
     // `axum`, `serde` and `serde_json` are listed explicitly: the `#[controller]`
     // macro expands to `axum::Router` and generated handlers use `axum::Json`,
     // so they have to be direct dependencies of the application crate.
     //
+    // `fragment-rs` is not on crates.io yet, so it comes from the repository.
+    // The version requirement is still there, so dropping the `git` and
+    // `tag` parts switches the project over to the published crate.
+    //
     // The project is a workspace root so that the `migrations` crate created by
     // `frs make:migration` can be registered as a member.
     format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfragment-rs = \"0.2\"\naxum = \"0.7\"\ntokio = {{ version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n\n[workspace]\nmembers = []\n"
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfragment-rs = {{ version = \"{}\", git = \"{}\", tag = \"{}\" }}\naxum = \"0.7\"\ntokio = {{ version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n\n[workspace]\nmembers = []\n",
+        framework_version_requirement(),
+        FRAMEWORK_REPOSITORY,
+        framework_release_tag(),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        generate_migration, make_component, make_migration, make_module, scaffold_project,
-        to_pascal_case, to_snake_case, validate_package_name, Component, MigrationOptions,
-        Structure,
+        framework_release_tag, framework_version_requirement, generate_migration, make_component,
+        make_migration, make_module, project_manifest, scaffold_project, to_pascal_case,
+        to_snake_case, validate_package_name, Component, MigrationOptions, Structure,
     };
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -1284,7 +1323,10 @@ mod tests {
         // The `#[controller]` macro expands to `axum::Router`, so axum has to
         // be a direct dependency of the generated application.
         assert!(manifest.contains("axum = \"0.7\""));
-        assert!(manifest.contains("fragment-rs = \"0.2\""));
+        // The framework is not on crates.io yet, so it comes from the
+        // repository, at the release that matches this CLI.
+        assert!(manifest.contains("git = \"https://github.com/Jesse-Dan/fragment-rs\""));
+        assert!(manifest.contains(&format!("tag = \"{}\"", framework_release_tag())));
         assert!(manifest.contains("[workspace]"));
         let _ = std::fs::remove_dir_all(path);
     }
@@ -1488,6 +1530,47 @@ mod tests {
         assert!(!up.contains("drop_column"));
         assert!(!up.contains("drop_table"));
         assert!(down.contains("drop_column"));
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn the_manifest_points_at_the_framework_release() {
+        let manifest = project_manifest("demo");
+
+        // The framework is not on crates.io yet, so the project takes it from
+        // the repository, at the release that matches this CLI.
+        assert!(manifest.contains("git = \"https://github.com/Jesse-Dan/fragment-rs\""));
+        assert!(manifest.contains(&format!("tag = \"{}\"", framework_release_tag())));
+        // The version requirement stays, so dropping the git source switches
+        // the project over to the published crate.
+        assert!(manifest.contains(&format!(
+            "version = \"{}\"",
+            framework_version_requirement()
+        )));
+    }
+
+    #[test]
+    fn the_version_requirement_matches_the_cli() {
+        let version = env!("CARGO_PKG_VERSION");
+        let expected = format!(
+            "{}.{}",
+            version.split('.').next().unwrap(),
+            version.split('.').nth(1).unwrap()
+        );
+        assert_eq!(framework_version_requirement(), expected);
+        assert_eq!(framework_release_tag(), format!("v{version}"));
+    }
+
+    #[test]
+    fn a_generated_project_reads_its_configuration() {
+        let _guard = working_directory_lock();
+        let path = temp_dir("bootstrap");
+        scaffold_project(&path, "demo", Structure::Module).unwrap();
+
+        // The generated `main.rs` uses the configuration file, so the
+        // address in `fragment.toml` is the one the server binds to.
+        assert!(read(&path.join("src/main.rs")).contains("from_config_file_or_default"));
+        assert!(read(&path.join("fragment.toml")).contains("[server]"));
         let _ = std::fs::remove_dir_all(path);
     }
 }

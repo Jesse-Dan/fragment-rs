@@ -317,14 +317,29 @@ use fragment_rs::FragmentApp;
 
 #[tokio::main]
 async fn main() {
-    FragmentApp::new()
-        .host("0.0.0.0")
-        .port(3000)
-        .cors_origins(vec!["http://localhost:3001".into()])
-        .file_upload_max_size(10 * 1024 * 1024)
+    FragmentApp::from_config_file_or_default("fragment.toml")
         .start()
         .await;
 }
+```
+
+The configuration file is optional. `from_config_file` reports a file that
+cannot be read or parsed, and `from_config_file_or_default` starts anyway.
+
+A setting comes from the first place that has a value:
+
+1. The builder method in the code.
+2. The `FRAGMENT_HOST` and `FRAGMENT_PORT` environment variables.
+3. The value in `fragment.toml`.
+4. The built-in default.
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[logging]
+level = "info"
 ```
 
 Controllers and services register themselves, so there is usually nothing to
@@ -339,6 +354,7 @@ of its own.
 FragmentApp::new()
     .host("0.0.0.0")                      // bind address (default: "0.0.0.0")
     .port(3000)                           // port (default: 3000)
+    .log_level("debug")                   // log level when RUST_LOG is unset
     .auto_scan(true)                      // auto-register components (default: true)
     .compression(true)                    // gzip compression (default: false)
     .cors_origins(vec!["*".into()])      // CORS origins
@@ -353,6 +369,12 @@ FragmentApp::new()
     .await;
 ```
 
+`address()` reports where the server will bind, without starting it:
+
+```rust
+let (host, port) = FragmentApp::from_config_file("fragment.toml")?.address();
+```
+
 Run:
 
 ```bash
@@ -360,6 +382,21 @@ cargo run --example customers_api
 # or
 cargo build --release && ./target/release/my-api
 ```
+
+---
+
+## Updating the CLI
+
+The `frs` CLI updates itself:
+
+```bash
+frs update          # install the latest release
+frs update --check  # report the version, change nothing
+```
+
+The release assets are named after the platform, and the name is the same for
+every release, so the latest one is fetched without an API lookup. See the
+[CLI reference](docs/CLI.md#update-the-cli).
 
 ---
 

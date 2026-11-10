@@ -8,15 +8,21 @@
 # Bumps the version in every crate, commits it, tags the commit, and pushes
 # both. The tag starts the release workflow, which builds the `frs` CLI and
 # publishes it as a GitHub release.
+#
+# The crates are published to crates.io as well, unless --no-publish is
+# given. The token comes from the `.env` file in the project root, or from
+# CARGO_REGISTRY_TOKEN in the environment.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 DRY_RUN=0
+PUBLISH=1
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
+        --no-publish) PUBLISH=0 ;;
         -*) echo "Unknown option: $arg" >&2; exit 2 ;;
         *) VERSION=$arg ;;
     esac
@@ -52,6 +58,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  fragment-macros/Cargo.toml"
     echo "  frs-cli/Cargo.toml"
     echo "Would commit, tag $TAG, and push."
+    if [ "$PUBLISH" -eq 1 ]; then
+        echo "Would publish the crates to crates.io."
+    fi
     exit 0
 fi
 
@@ -79,3 +88,15 @@ echo "Released $TAG"
 echo "The release workflow is running:"
 echo "  https://github.com/Jesse-Dan/fragment-rs/actions"
 echo "Watch it here: gh run watch --repo Jesse-Dan/fragment-rs"
+
+# Publish the crates to crates.io. The tag has already been pushed, so the
+# GitHub release is not held up by this.
+if [ "$PUBLISH" -eq 1 ]; then
+    echo
+    if [ -f .env ] || [ -n "${CARGO_REGISTRY_TOKEN:-}" ]; then
+        ./scripts/publish.sh
+    else
+        echo "No crates.io token found. Skipping the crates.io publish."
+        echo "Put CARGO_REGISTRY_TOKEN in .env, or run ./scripts/publish.sh."
+    fi
+fi

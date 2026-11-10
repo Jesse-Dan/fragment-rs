@@ -16,7 +16,8 @@
 
 # Environment
 .env
-.env.local
+.env.*
+!.env.example
 
 # Editors and OS
 .idea/
