@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "fragment-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "fragment-rs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "chrono",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "frs-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "sea-orm",
  "syn 2.0.117",
