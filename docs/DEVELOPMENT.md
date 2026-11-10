@@ -142,12 +142,31 @@ is pushed:
 ./scripts/release.sh 0.3.0
 ```
 
+The publish runs in the background, because crates.io rate-limits new crates
+and is sometimes slow. A release should not wait for it. The script prints
+where the log is:
+
+```text
+Publishing the crates to crates.io in the background.
+  log: .publish-20261110-201500.log
+  follow it with: tail -f .publish-20261110-201500.log
+```
+
+To sit and watch it instead:
+
+```sh
+./scripts/release.sh 0.3.0 --publish-wait
+```
+
 To publish without tagging, run the publish script on its own:
 
 ```sh
 ./scripts/publish.sh
 ./scripts/publish.sh --dry-run
 ```
+
+The publish script skips a crate that is already on crates.io, so it is safe
+to run again after a failure.
 
 The same token can be set as the `CARGO_REGISTRY_TOKEN` secret in the
 repository. The workflow then publishes the crates as well, in the same

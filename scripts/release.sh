@@ -11,18 +11,21 @@
 #
 # The crates are published to crates.io as well, unless --no-publish is
 # given. The token comes from the `.env` file in the project root, or from
-# CARGO_REGISTRY_TOKEN in the environment.
+# CARGO_REGISTRY_TOKEN in the environment. That publish runs in the
+# background; --publish-wait waits for it instead.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 DRY_RUN=0
 PUBLISH=1
+PUBLISH_WAIT=0
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --no-publish) PUBLISH=0 ;;
+        --publish-wait) PUBLISH_WAIT=1 ;;
         -*) echo "Unknown option: $arg" >&2; exit 2 ;;
         *) VERSION=$arg ;;
     esac
@@ -91,12 +94,23 @@ echo "Watch it here: gh run watch --repo Jesse-Dan/fragment-rs"
 
 # Publish the crates to crates.io. The tag has already been pushed, so the
 # GitHub release is not held up by this.
+#
+# The publish runs on its own. crates.io rate-limits new crates and is
+# sometimes slow, and a release should not wait for it. Pass --publish-wait
+# to sit and watch it instead.
 if [ "$PUBLISH" -eq 1 ]; then
     echo
-    if [ -f .env ] || [ -n "${CARGO_REGISTRY_TOKEN:-}" ]; then
-        ./scripts/publish.sh
-    else
+    if [ ! -f .env ] && [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
         echo "No crates.io token found. Skipping the crates.io publish."
         echo "Put CARGO_REGISTRY_TOKEN in .env, or run ./scripts/publish.sh."
+    elif [ "$PUBLISH_WAIT" -eq 1 ]; then
+        ./scripts/publish.sh
+    else
+        log=".publish-$(date +%Y%m%d-%H%M%S).log"
+        # `nohup` so the publish keeps going after this script exits.
+        nohup ./scripts/publish.sh >"$log" 2>&1 &
+        echo "Publishing the crates to crates.io in the background."
+        echo "  log: $log"
+        echo "  follow it with: tail -f $log"
     fi
 fi

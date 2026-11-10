@@ -19,6 +19,9 @@
 .env.*
 !.env.example
 
+# The log of a background publish
+.publish-*.log
+
 # Editors and OS
 .idea/
 .vscode/
