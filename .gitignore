@@ -3,6 +3,11 @@
 **/*.rs.bk
 *.pdb
 
+# Editor backups
+*.bak*
+*.orig
+*.rej
+
 # Local SQLite databases created by the examples and tests
 *.db
 *.db-journal
@@ -17,3 +22,4 @@
 .idea/
 .vscode/
 .DS_Store
+**/.DS_Store
