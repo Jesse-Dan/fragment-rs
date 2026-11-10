@@ -1,0 +1,2 @@
+fn(ValidatedJson<CreateCustomerDto>, Inject<CustomerRepository>, Inject<EmailService>) -> impl std::future::Future<Output = (StatusCode, Json<Customer>)> {CustomerController::create_customer}
+fn(ValidatedJson<CreateCustomerDto>, Inject<CustomerRepository>, Inject<EmailService>) -> impl std::future::Future<Output = (StatusCode, Json<Customer>)> {CustomerController::create_customer}: Handler<_, _>

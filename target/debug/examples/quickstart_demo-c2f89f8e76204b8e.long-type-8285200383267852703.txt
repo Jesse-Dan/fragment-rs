@@ -1,0 +1,2 @@
+fn(String, Inject<CustomerRepoWrapper>) -> impl Future<Output = Result<Json<Customer>, StatusCode>> {CustomerController::get_customer}
+fn(String, Inject<CustomerRepoWrapper>) -> impl Future<Output = Result<Json<Customer>, StatusCode>> {CustomerController::get_customer}: Handler<_, _>
