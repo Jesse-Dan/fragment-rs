@@ -69,7 +69,10 @@ impl MetadataStorage {
 
     pub fn add_property_injection(&self, target: &str, injection: PropertyInjectionMetadata) {
         let mut injections = self.property_injections.write().unwrap();
-        injections.entry(target.to_string()).or_default().push(injection);
+        injections
+            .entry(target.to_string())
+            .or_default()
+            .push(injection);
     }
 
     pub fn get_property_injections(&self, target: &str) -> Vec<PropertyInjectionMetadata> {

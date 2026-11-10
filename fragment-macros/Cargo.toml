@@ -2,6 +2,10 @@
 name = "fragment-macros"
 version = "0.2.0"
 edition = "2021"
+description = "Procedural macros for the Fragment Rust framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Jesse-Dan/fragment-rs"
+homepage = "https://github.com/Jesse-Dan/fragment-rs"
 
 [lib]
 proc-macro = true

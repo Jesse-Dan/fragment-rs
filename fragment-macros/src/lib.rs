@@ -4,7 +4,7 @@ use quote::quote;
 use syn::{parse_macro_input, ItemImpl, ItemStruct, LitStr};
 
 struct RouteArgs {
-    method: syn::Ident,
+    method: syn::Path,
     path: LitStr,
 }
 
@@ -37,8 +37,17 @@ fn derive_clone_with_impls(input: &ItemStruct, extra: TokenStream2) -> TokenStre
     }
 }
 
-fn axum_routing_call(method: &syn::Ident, fn_ident: &syn::Ident) -> TokenStream2 {
-    match method.to_string().to_uppercase().as_str() {
+/// Maps a method path onto the matching Axum routing call.
+///
+/// The last segment of the path carries the method name, so both `GET` and
+/// `fragment_rs::GET` are accepted.
+fn axum_routing_call(method: &syn::Path, fn_ident: &syn::Ident) -> TokenStream2 {
+    let name = method
+        .segments
+        .last()
+        .map(|segment| segment.ident.to_string())
+        .unwrap_or_default();
+    match name.to_uppercase().as_str() {
         "GET" => quote! { axum::routing::get(Self::#fn_ident) },
         "POST" => quote! { axum::routing::post(Self::#fn_ident) },
         "PUT" => quote! { axum::routing::put(Self::#fn_ident) },
@@ -72,10 +81,37 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
     let name = &input.ident;
 
+    // A service that derives `Default` can be built by the framework, so it
+    // registers itself. One that does not has to be registered by hand.
+    let derives_default = input.attrs.iter().any(|attr| {
+        if !attr.path().is_ident("derive") {
+            return false;
+        }
+        attr.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated,
+        )
+        .map(|idents| idents.iter().any(|ident| ident == "Default"))
+        .unwrap_or(false)
+    });
+
+    let registration = if derives_default {
+        quote! {
+            ::fragment_rs::core::container::inventory::submit! {
+                ::fragment_rs::core::container::ServiceRegistration {
+                    create: ::fragment_rs::core::container::boxed::<#name>,
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     derive_clone_with_impls(
         &input,
         quote! {
             impl ::fragment_rs::core::container::Service for #name {}
+
+            #registration
         },
     )
     .into()
@@ -105,14 +141,21 @@ pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut impl_block = parse_macro_input!(item as ItemImpl);
     let self_ty = impl_block.self_ty.clone();
     let mut routes: Vec<TokenStream2> = Vec::new();
+    let mut methods: Vec<TokenStream2> = Vec::new();
 
     for item in &mut impl_block.items {
         if let syn::ImplItem::Fn(method) = item {
             let fn_ident = &method.sig.ident;
-            let (route_attrs, other_attrs): (Vec<_>, Vec<_>) = std::mem::take(&mut method.attrs)
-                .into_iter()
-                .partition(|attr| attr.path().is_ident("route"));
-            method.attrs = other_attrs;
+            // The `#[route(...)]` attributes are read here to build the router
+            // but are deliberately left in place. Keeping them means the
+            // `route` macro and the HTTP method constants stay referenced, so
+            // the imports a controller writes are not reported as unused.
+            let route_attrs: Vec<syn::Attribute> = method
+                .attrs
+                .iter()
+                .filter(|attr| attr.path().is_ident("route"))
+                .cloned()
+                .collect();
 
             for attr in route_attrs {
                 match attr.parse_args::<RouteArgs>() {
@@ -121,15 +164,27 @@ pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
                         path,
                     }) => {
                         let sub = path.value();
-                        let sub = sub.trim_start_matches('/');
-                        let full_path = if prefix.is_empty() {
-                            format!("/{sub}")
-                        } else {
-                            format!("{prefix}/{sub}")
+                        let sub = sub.trim_matches('/');
+                        // A route of "/" or "" addresses the prefix itself. Joining
+                        // it naively would produce a trailing slash, and Axum
+                        // matches paths exactly, so "/api/customers/" would not
+                        // answer a request for "/api/customers".
+                        let full_path = match (prefix.is_empty(), sub.is_empty()) {
+                            (true, true) => "/".to_owned(),
+                            (true, false) => format!("/{sub}"),
+                            (false, true) => prefix.to_owned(),
+                            (false, false) => format!("{prefix}/{sub}"),
                         };
                         let routing_call = axum_routing_call(&http_method, fn_ident);
                         routes.push(quote! {
                             router = router.route(#full_path, #routing_call);
+                        });
+                        // The method constant is referenced here so that the
+                        // import a controller writes for it is not reported as
+                        // unused: the constant only appears inside an
+                        // attribute, which the compiler never resolves.
+                        methods.push(quote! {
+                            let _ = #http_method;
                         });
                     }
                     Err(error) => return error.to_compile_error().into(),
@@ -141,10 +196,28 @@ pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #impl_block
 
-        impl ::fragment_rs::core::routing::Controller for #self_ty {
-            fn register_routes(mut router: axum::Router) -> axum::Router {
+        impl #self_ty {
+            /// Registers this controller's routes on a router.
+            ///
+            /// Pass it to `FragmentApp::controller` to serve the routes.
+            pub fn register(mut router: axum::Router) -> axum::Router {
+                #(#methods)*
                 #(#routes)*
                 router
+            }
+        }
+
+        impl ::fragment_rs::core::routing::Controller for #self_ty {
+            fn register_routes(router: axum::Router) -> axum::Router {
+                Self::register(router)
+            }
+        }
+
+        // The controller registers itself, so the application finds it
+        // without being told about it.
+        ::fragment_rs::core::routing::inventory::submit! {
+            ::fragment_rs::core::routing::ControllerRegistration {
+                register: <#self_ty>::register,
             }
         }
     }

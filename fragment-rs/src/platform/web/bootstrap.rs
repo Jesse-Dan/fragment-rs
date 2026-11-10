@@ -22,7 +22,12 @@ impl FragmentBootstrap {
     }
 
     pub fn boot(app: &str, port: u16, components: usize) {
-        tracing::info!("{} v{} starting on http://0.0.0.0:{}", app, env!("CARGO_PKG_VERSION"), port);
+        tracing::info!(
+            "{} v{} starting on http://0.0.0.0:{}",
+            app,
+            env!("CARGO_PKG_VERSION"),
+            port
+        );
         tracing::info!("{} components registered", components);
     }
 }

@@ -1,0 +1,25 @@
+[package]
+name = "frs-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line tools for creating and managing Fragment Rust applications"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Jesse-Dan/fragment-rs"
+homepage = "https://github.com/Jesse-Dan/fragment-rs"
+keywords = ["cli", "scaffolding", "fragment", "axum"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+sea-orm = { version = "1.1", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "sqlx-postgres",
+    "sqlx-mysql",
+    "sqlx-sqlite",
+] }
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+toml = "0.8"
+
+[[bin]]
+name = "frs"
+path = "src/main.rs"

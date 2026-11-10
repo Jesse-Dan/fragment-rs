@@ -38,6 +38,66 @@ pub enum FragmentError {
     RateLimitExceeded { retry_after: u64 },
 }
 
+impl axum::response::IntoResponse for FragmentError {
+    fn into_response(self) -> axum::response::Response {
+        use axum::http::StatusCode;
+
+        let status =
+            StatusCode::from_u16(self.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let code = self.code();
+        let (message, details) = match self {
+            Self::Generic {
+                message, details, ..
+            } if status.is_client_error() => (message, details),
+            Self::Validation(message) => (message, None),
+            Self::NotFound(message) => (message, None),
+            Self::Unauthorized => ("Authentication required".to_owned(), None),
+            Self::Forbidden => (
+                "You do not have permission to perform this action".to_owned(),
+                None,
+            ),
+            Self::RequestTimeout => ("The request timed out".to_owned(), None),
+            Self::RateLimitExceeded { .. } => ("Too many requests".to_owned(), None),
+            other => {
+                tracing::error!(error = %other, code = %code, "request failed");
+                ("An unexpected error occurred".to_owned(), None)
+            }
+        };
+
+        (
+            status,
+            axum::Json(serde_json::json!({
+                "error": { "code": code, "message": message, "details": details }
+            })),
+        )
+            .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FragmentError;
+    use axum::response::IntoResponse;
+
+    #[tokio::test]
+    async fn internal_errors_do_not_expose_details_to_clients() {
+        let response = FragmentError::Database("password leaked by driver".into()).into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["message"], "An unexpected error occurred");
+        assert!(!body
+            .windows(b"password leaked".len())
+            .any(|w| w == b"password leaked"));
+    }
+}
+
 impl FragmentError {
     pub fn status_code(&self) -> u16 {
         match self {
@@ -73,10 +133,7 @@ impl FragmentError {
         Self::Generic {
             message: message.into(),
             status_code,
-            code: format!(
-                "E{}",
-                status_code
-            ),
+            code: format!("E{}", status_code),
             details: None,
         }
     }

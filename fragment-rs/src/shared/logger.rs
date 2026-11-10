@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::EnvFilter;
 
 static INITIALIZED: OnceLock<()> = OnceLock::new();
 
@@ -37,8 +37,8 @@ pub struct FragmentLogger;
 impl FragmentLogger {
     pub fn init() {
         INITIALIZED.get_or_init(|| {
-            let filter = EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info"));
+            let filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
             tracing_subscriber::fmt()
                 .with_env_filter(filter)
                 .with_span_events(FmtSpan::CLOSE)

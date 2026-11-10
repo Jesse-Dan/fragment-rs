@@ -76,11 +76,12 @@ impl OpenApiBuilder {
             PathItem {
                 summary: Some(summary.to_string()),
                 tags,
-                responses: HashMap::from([
-                    ("200".to_string(), ResponseItem {
+                responses: HashMap::from([(
+                    "200".to_string(),
+                    ResponseItem {
                         description: "Success".to_string(),
-                    }),
-                ]),
+                    },
+                )]),
             },
         );
         self

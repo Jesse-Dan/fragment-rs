@@ -1,5 +1,8 @@
 use axum::Router;
 
+/// The inventory registry that collects the controllers of an application.
+pub use inventory;
+
 pub const GET: &str = "GET";
 pub const POST: &str = "POST";
 pub const PUT: &str = "PUT";
@@ -22,9 +25,28 @@ impl<T: Controller> FragmentRoute for T {
     }
 }
 
+/// A controller that registered itself with the framework.
+///
+/// The `#[controller]` macro submits one of these for every controller, so
+/// the application can find all of them without being told about them.
+pub struct ControllerRegistration {
+    /// Registers the controller's routes on a router.
+    pub register: fn(Router) -> Router,
+}
+
+inventory::collect!(ControllerRegistration);
+
+/// Every controller that registered itself with the framework.
+pub fn registered_controllers() -> Vec<fn(Router) -> Router> {
+    inventory::iter::<ControllerRegistration>()
+        .map(|registration| registration.register)
+        .collect()
+}
+
 pub struct FragmentRouter {
     host: String,
     port: u16,
+    controllers: Vec<fn(axum::Router) -> axum::Router>,
 }
 
 impl FragmentRouter {
@@ -32,6 +54,7 @@ impl FragmentRouter {
         Self {
             host: "0.0.0.0".into(),
             port: 3000,
+            controllers: Vec::new(),
         }
     }
 
@@ -45,6 +68,15 @@ impl FragmentRouter {
         self
     }
 
+    /// Registers a controller's routes with the application.
+    ///
+    /// The `#[controller]` macro generates a `register` function on the
+    /// controller type, so this is usually just the name of the controller.
+    pub fn controller(mut self, register: fn(axum::Router) -> axum::Router) -> Self {
+        self.controllers.push(register);
+        self
+    }
+
     pub async fn start(self) {
         use crate::shared::FragmentLogger;
         FragmentLogger::init();
@@ -54,6 +86,15 @@ impl FragmentRouter {
 
         for ctrl in crate::core::container::DIContainer::auto_register_controllers() {
             router = ctrl.register_routes(router);
+        }
+
+        // Controllers that registered themselves with the framework.
+        for register in registered_controllers() {
+            router = register(router);
+        }
+
+        for register in &self.controllers {
+            router = register(router);
         }
 
         let addr = format!("{}:{}", self.host, self.port);

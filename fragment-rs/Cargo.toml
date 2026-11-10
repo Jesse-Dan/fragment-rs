@@ -2,9 +2,12 @@
 name = "fragment-rs"
 version = "0.2.0"
 edition = "2021"
-authors = ["Fragment Team <team@fragment.rs>"]
+authors = ["Jesse Dan <jesse.dan@example.com>"]
 description = """A Spring Boot-inspired web framework for Rust powered by Axum. Zero config, zero manual registration. Auto DI, validation, and OpenAPI docs."""
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/Jesse-Dan/fragment-rs"
+homepage = "https://github.com/Jesse-Dan/fragment-rs"
+documentation = "https://docs.rs/fragment-rs"
 keywords = ["web", "axum", "framework", "api", "rust"]
 categories = ["async", "web-programming::http-server"]
 readme = "../README.md"
@@ -12,6 +15,7 @@ readme = "../README.md"
 [dependencies]
 fragment-macros = { path = "../fragment-macros", version = "0.2.0" }
 axum = "0.7"
+inventory = "0.3"
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
 serde = { version = "1", features = ["derive"] }
@@ -25,6 +29,21 @@ once_cell = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "1"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "any",
+    "postgres",
+    "mysql",
+    "sqlite",
+] }
+toml = "0.8"
+sea-orm = { version = "1.1", default-features = false, features = [
+    "macros",
+    "runtime-tokio-rustls",
+    "sqlx-postgres",
+    "sqlx-mysql",
+    "sqlx-sqlite",
+] }
 
 [dev-dependencies]
 http = "1"

@@ -1,6 +1,3 @@
 [workspace]
-members = [
-    "fragment-rs",
-    "fragment-macros",
-]
+members = ["fragment-rs", "fragment-macros", "frs-cli"]
 resolver = "2"

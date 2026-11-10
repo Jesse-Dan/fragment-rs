@@ -17,21 +17,33 @@ pub enum ValidationRejection {
 
 impl IntoResponse for ValidationRejection {
     fn into_response(self) -> Response {
-        let (status, body) = match self {
-            Self::JsonError(msg) => (
+        let (status, code, message, details) = match self {
+            Self::JsonError(details) => (
                 axum::http::StatusCode::BAD_REQUEST,
-                serde_json::json!({ "error": msg }),
+                "INVALID_JSON",
+                "The request body could not be parsed as JSON",
+                Some(details),
             ),
-            Self::Validation(msg) => (
+            Self::Validation(details) => (
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                serde_json::json!({ "error": "Validation failed", "details": msg }),
+                "VALIDATION_ERROR",
+                "Validation failed",
+                Some(details),
             ),
-            Self::QueryError(msg) => (
+            Self::QueryError(details) => (
                 axum::http::StatusCode::BAD_REQUEST,
-                serde_json::json!({ "error": msg }),
+                "INVALID_QUERY",
+                "The query string could not be parsed",
+                Some(details),
             ),
         };
-        (status, axum::Json(body)).into_response()
+        (
+            status,
+            axum::Json(serde_json::json!({
+                "error": { "code": code, "message": message, "details": details }
+            })),
+        )
+            .into_response()
     }
 }
 
@@ -45,11 +57,16 @@ where
 {
     type Rejection = ValidationRejection;
 
-    async fn from_request(req: axum::http::Request<Body>, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(
+        req: axum::http::Request<Body>,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
         let axum::Json(value) = axum::Json::<T>::from_request(req, state)
             .await
             .map_err(|e| ValidationRejection::JsonError(e.body_text()))?;
-        value.validate().map_err(|e| ValidationRejection::Validation(e.to_string()))?;
+        value
+            .validate()
+            .map_err(|e| ValidationRejection::Validation(e.to_string()))?;
         Ok(ValidatedJson(value))
     }
 }
@@ -68,7 +85,9 @@ where
         let AxumQuery(value) = AxumQuery::<T>::from_request_parts(parts, _state)
             .await
             .map_err(|e| ValidationRejection::QueryError(e.to_string()))?;
-        value.validate().map_err(|e| ValidationRejection::Validation(e.to_string()))?;
+        value
+            .validate()
+            .map_err(|e| ValidationRejection::Validation(e.to_string()))?;
         Ok(ValidatedQuery(value))
     }
 }

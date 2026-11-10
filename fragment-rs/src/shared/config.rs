@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::Path;
 
 // toml is available via the crate-level dependency
@@ -6,7 +7,10 @@ use std::path::Path;
 #[derive(Debug, Default, Deserialize)]
 pub struct FragmentConfig {
     pub server: Option<ServerConfig>,
+    pub structure: Option<StructureConfig>,
     pub database: Option<DatabaseConfig>,
+    #[serde(default)]
+    pub databases: HashMap<String, DatabaseConfig>,
     pub logging: Option<LoggingConfig>,
     pub cache: Option<CacheConfig>,
     pub rate_limit: Option<RateLimitConfig>,
@@ -17,13 +21,20 @@ pub struct FragmentConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct StructureConfig {
+    pub kind: Option<String>,
+    #[serde(rename = "type")]
+    pub structure_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ServerConfig {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub workers: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
     pub url: Option<String>,
     pub pool_size: Option<u32>,
@@ -86,11 +97,9 @@ pub struct DocsConfig {
 impl FragmentConfig {
     /// Load from a TOML file. Requires `toml` crate as dependency.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        // Placeholder - requires toml::from_str import
-        let _content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| ConfigError::Io(e.to_string()))?;
-        // TODO: Add `toml` dependency and use: toml::from_str(&content)?
-        Ok(FragmentConfig::default())
+        let content =
+            std::fs::read_to_string(path.as_ref()).map_err(|e| ConfigError::Io(e.to_string()))?;
+        toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))
     }
 
     pub fn load_defaults() -> FragmentConfig {
@@ -101,13 +110,17 @@ impl FragmentConfig {
         Self {
             server: Some(ServerConfig {
                 host: std::env::var("FRAGMENT_HOST").ok(),
-                port: std::env::var("FRAGMENT_PORT").ok().and_then(|s| s.parse().ok()),
+                port: std::env::var("FRAGMENT_PORT")
+                    .ok()
+                    .and_then(|s| s.parse().ok()),
                 workers: None,
             }),
             logging: Some(LoggingConfig {
                 level: std::env::var("FRAGMENT_LOG_LEVEL").ok(),
                 format: None,
-                structured: std::env::var("FRAGMENT_LOG_STRUCTURED").ok().map(|s| s == "true"),
+                structured: std::env::var("FRAGMENT_LOG_STRUCTURED")
+                    .ok()
+                    .map(|s| s == "true"),
                 file: None,
             }),
             verbose: std::env::var("FRAGMENT_VERBOSE").ok().map(|s| s == "true"),

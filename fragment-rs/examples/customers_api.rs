@@ -93,6 +93,8 @@ impl CustomerController {
 
 #[tokio::main]
 async fn main() {
+    // The controller and the service register themselves, so there is nothing
+    // to wire up here.
     FragmentApp::new()
         .port(3000)
         .cors_origins(vec!["http://localhost:3001".into()])

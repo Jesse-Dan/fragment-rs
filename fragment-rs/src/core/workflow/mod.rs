@@ -7,7 +7,10 @@ use tokio::sync::RwLock;
 pub trait WorkflowStep: Send + Sync {
     fn name(&self) -> &str;
     fn retries(&self) -> u32;
-    fn execute(&self, input: serde_json::Value) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, String>> + Send + '_>>;
+    fn execute(
+        &self,
+        input: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, String>> + Send + '_>>;
 }
 
 #[derive(Clone)]
@@ -55,7 +58,10 @@ impl<S: WorkflowStep> WorkflowDef<S> {
 }
 
 pub trait WorkflowStateStore: Send + Sync {
-    fn save(&self, state: &WorkflowState) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+    fn save(
+        &self,
+        state: &WorkflowState,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
     fn load(&self, id: &str) -> Pin<Box<dyn Future<Output = Option<WorkflowState>> + Send + '_>>;
 }
 
@@ -65,7 +71,10 @@ pub struct InMemoryStateStore {
 }
 
 impl WorkflowStateStore for InMemoryStateStore {
-    fn save(&self, state: &WorkflowState) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+    fn save(
+        &self,
+        state: &WorkflowState,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         let state = state.clone();
         Box::pin(async move {
             self.states.write().await.insert(state.id.clone(), state);
@@ -75,20 +84,25 @@ impl WorkflowStateStore for InMemoryStateStore {
 
     fn load(&self, id: &str) -> Pin<Box<dyn Future<Output = Option<WorkflowState>> + Send + '_>> {
         let id = id.to_string();
-        Box::pin(async move {
-            self.states.read().await.get(&id).cloned()
-        })
+        Box::pin(async move { self.states.read().await.get(&id).cloned() })
     }
 }
 
 pub struct WorkflowRunner;
 
 impl WorkflowRunner {
-    pub async fn run<S>(workflow: &WorkflowDef<S>, input: serde_json::Value) -> Result<serde_json::Value, String>
+    pub async fn run<S>(
+        workflow: &WorkflowDef<S>,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String>
     where
         S: WorkflowStep,
     {
-        let id = format!("{}:{}", workflow.name, chrono::Utc::now().timestamp_millis());
+        let id = format!(
+            "{}:{}",
+            workflow.name,
+            chrono::Utc::now().timestamp_millis()
+        );
         let mut state = WorkflowState {
             id: id.clone(),
             workflow: workflow.name.clone(),
@@ -140,7 +154,10 @@ impl WorkflowRunner {
         Ok(state.last_result.unwrap_or(serde_json::Value::Null))
     }
 
-    pub async fn resume<S>(workflow: &WorkflowDef<S>, execution_id: &str) -> Result<serde_json::Value, String>
+    pub async fn resume<S>(
+        workflow: &WorkflowDef<S>,
+        execution_id: &str,
+    ) -> Result<serde_json::Value, String>
     where
         S: WorkflowStep,
     {
@@ -178,11 +195,17 @@ impl WorkflowRunner {
                 workflow.state_store.save(&ws).await?;
                 Ok(ws.last_result.unwrap_or(serde_json::Value::Null))
             }
-            _ => Err(format!("Workflow state not found or not failed: {}", execution_id)),
+            _ => Err(format!(
+                "Workflow state not found or not failed: {}",
+                execution_id
+            )),
         }
     }
 }
 
 pub mod prelude {
-    pub use super::{WorkflowDef, WorkflowRunner, WorkflowState, WorkflowStateStore, WorkflowStep, WorkflowStatus};
+    pub use super::{
+        WorkflowDef, WorkflowRunner, WorkflowState, WorkflowStateStore, WorkflowStatus,
+        WorkflowStep,
+    };
 }

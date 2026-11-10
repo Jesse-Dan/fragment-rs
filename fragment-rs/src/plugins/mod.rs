@@ -36,7 +36,10 @@ impl PluginManager {
     }
 
     pub fn find_by_name(name: &str) -> Option<Arc<dyn Plugin>> {
-        PluginManager::plugins().iter().find(|p| p.name() == name).cloned()
+        PluginManager::plugins()
+            .iter()
+            .find(|p| p.name() == name)
+            .cloned()
     }
 
     pub async fn init_all() {

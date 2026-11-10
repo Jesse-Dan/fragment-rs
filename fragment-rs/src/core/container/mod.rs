@@ -10,13 +10,33 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
 
-static CONTAINER: LazyLock<Arc<ContainerInner>> = LazyLock::new(|| Arc::new(ContainerInner::default()));
+/// The inventory registry that collects the services of an application.
+pub use inventory;
 
-static SERVICE_REGISTRY: LazyLock<RwLock<Vec<fn()>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
+/// A service that registered itself with the framework.
+///
+/// The `#[service]` macro submits one of these for every service that can
+/// build itself, so the container can find all of them.
+pub struct ServiceRegistration {
+    /// Builds the service.
+    pub create: fn() -> Box<dyn Any + Send + Sync>,
+}
 
-static CONTROLLER_REGISTRY: LazyLock<RwLock<Vec<Box<dyn Fn() -> Arc<dyn FragmentRoute + Send + Sync> + Send + Sync>>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
+inventory::collect!(ServiceRegistration);
+
+/// Builds a boxed service, used by the `#[service]` macro.
+pub fn boxed<T: Default + Send + Sync + 'static>() -> Box<dyn Any + Send + Sync> {
+    Box::new(T::default())
+}
+
+static CONTAINER: LazyLock<Arc<ContainerInner>> =
+    LazyLock::new(|| Arc::new(ContainerInner::default()));
+
+static SERVICE_REGISTRY: LazyLock<RwLock<Vec<fn()>>> = LazyLock::new(|| RwLock::new(Vec::new()));
+
+static CONTROLLER_REGISTRY: LazyLock<
+    RwLock<Vec<Box<dyn Fn() -> Arc<dyn FragmentRoute + Send + Sync> + Send + Sync>>>,
+> = LazyLock::new(|| RwLock::new(Vec::new()));
 
 struct ContainerInner {
     singletons: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
@@ -43,10 +63,27 @@ fn container() -> Arc<ContainerInner> {
 }
 
 impl ContainerInner {
-    fn register<T: Service>(&self, instance: T) where T: 'static {
+    fn register<T: Service>(&self, instance: T)
+    where
+        T: 'static,
+    {
         let tid = TypeId::of::<T>();
         self.registered.write().unwrap().insert(tid, true);
-        self.singletons.write().unwrap().insert(tid, Arc::new(instance));
+        self.singletons
+            .write()
+            .unwrap()
+            .insert(tid, Arc::new(instance));
+    }
+
+    /// Registers a service that is already boxed, so its type is only known
+    /// at runtime.
+    fn register_boxed(&self, instance: Box<dyn Any + Send + Sync>) {
+        let tid = Any::type_id(&*instance);
+        self.registered.write().unwrap().insert(tid, true);
+        self.singletons
+            .write()
+            .unwrap()
+            .insert(tid, Arc::from(instance));
     }
 
     fn register_factory<T: Service, F>(&self, factory: F)
@@ -58,11 +95,15 @@ impl ContainerInner {
         self.registered.write().unwrap().insert(tid, true);
         self.factories.write().unwrap().insert(
             tid,
-            Box::new(move || Arc::new(factory()) as Arc<dyn Any + Send + Sync>) as Box<dyn Fn() -> Arc<dyn Any + Send + Sync> + Send + Sync>
+            Box::new(move || Arc::new(factory()) as Arc<dyn Any + Send + Sync>)
+                as Box<dyn Fn() -> Arc<dyn Any + Send + Sync> + Send + Sync>,
         );
     }
 
-    fn get<T: Service>(&self) -> Option<Arc<T>> where T: 'static {
+    fn get<T: Service>(&self) -> Option<Arc<T>>
+    where
+        T: 'static,
+    {
         let tid = TypeId::of::<T>();
 
         if let Some(s) = self.singletons.read().unwrap().get(&tid) {
@@ -157,6 +198,11 @@ impl DIContainer {
         for callback in SERVICE_REGISTRY.read().unwrap().iter() {
             callback();
         }
+
+        // Services that registered themselves with the framework.
+        for registration in inventory::iter::<ServiceRegistration>() {
+            container().register_boxed((registration.create)());
+        }
     }
 
     pub fn auto_register_controllers() -> Vec<Arc<dyn FragmentRoute + Send + Sync>> {
@@ -177,7 +223,9 @@ pub fn register_controller<F>(factory: F)
 where
     F: Fn() -> Arc<dyn FragmentRoute + Send + Sync> + Send + Sync + 'static,
 {
-    CONTROLLER_REGISTRY.write().unwrap().push(Box::new(factory) as Box<dyn Fn() -> Arc<dyn FragmentRoute + Send + Sync> + Send + Sync>);
+    CONTROLLER_REGISTRY.write().unwrap().push(
+        Box::new(factory) as Box<dyn Fn() -> Arc<dyn FragmentRoute + Send + Sync> + Send + Sync>
+    );
 }
 
 pub struct Inject<T: Service>(pub Arc<T>);
@@ -203,10 +251,7 @@ where
 {
     type Rejection = DiRejection;
 
-    async fn from_request_parts(
-        _parts: &mut Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         DIContainer::get::<T>()
             .map(Inject)
             .ok_or_else(|| DiRejection::NotFound(std::any::type_name::<T>().to_string()))
@@ -230,13 +275,16 @@ impl std::fmt::Display for DiRejection {
 
 impl IntoResponse for DiRejection {
     fn into_response(self) -> axum::response::Response {
-        let (status, msg) = match &self {
-            DiRejection::NotFound(s) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Service `{}` not registered in DI container", s)),
-            DiRejection::Circular(s) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Circular dependency: {}", s)),
-        };
-        (status, Json(serde_json::json!({
-            "error": msg,
-            "code": "DI_ERROR"
-        }))).into_response()
+        tracing::error!(error = %self, "dependency injection failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
+                }
+            })),
+        )
+            .into_response()
     }
 }

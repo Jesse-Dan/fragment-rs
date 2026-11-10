@@ -10,6 +10,7 @@ pub struct FragmentApp {
     cors: CorsConfig,
     helmet: bool,
     file_upload: FileUploadConfig,
+    controllers: Vec<fn(axum::Router) -> axum::Router>,
 }
 
 pub struct CorsConfig {
@@ -44,6 +45,7 @@ impl FragmentApp {
                 allowed_types: None,
                 max_files: 10,
             },
+            controllers: Vec::new(),
         }
     }
 
@@ -98,6 +100,54 @@ impl FragmentApp {
         self
     }
 
+    /// Registers a service with the dependency injection container.
+    ///
+    /// The container keeps one instance and hands out an `Arc` of it, so the
+    /// service behaves as a singleton.
+    ///
+    /// This is optional. A `#[service]` type that derives `Default` registers
+    /// itself, and the application finds it. Use this for a service the
+    /// framework cannot build on its own.
+    ///
+    /// ```rust,ignore
+    /// use fragment_rs::FragmentApp;
+    ///
+    /// // `CustomerRepository` is a `#[service]` type that needs a
+    /// // connection of its own, so it is registered by hand.
+    /// FragmentApp::new()
+    ///     .service(CustomerRepository::open_pool())
+    ///     .start()
+    ///     .await;
+    /// ```
+    pub fn service<T: crate::core::container::Service>(self, instance: T) -> Self {
+        DIContainer::register(instance);
+        self
+    }
+
+    /// Registers a service with a factory, so it is built on first use.
+    pub fn service_factory<T, F>(self, factory: F) -> Self
+    where
+        T: crate::core::container::Service,
+        F: Fn() -> T + Send + Sync + 'static,
+    {
+        DIContainer::register_factory(factory);
+        self
+    }
+
+    /// Registers a controller's routes with the application.
+    ///
+    /// This is optional. A `#[controller]` type registers itself, and the
+    /// application finds every controller that did. Use this when you want to
+    /// be explicit about the order the routes are added, or when a controller
+    /// lives in another crate.
+    ///
+    /// The `#[controller]` macro generates a `register` function on the
+    /// controller type, so this is usually just the name of the controller.
+    pub fn controller(mut self, register: fn(axum::Router) -> axum::Router) -> Self {
+        self.controllers.push(register);
+        self
+    }
+
     pub async fn start(self) {
         FragmentLogger::init();
         DIContainer::auto_register_services();
@@ -105,13 +155,22 @@ impl FragmentApp {
         let mut router = axum::Router::new();
 
         if self.cors.enabled {
-            use tower_http::cors::{CorsLayer, Any, AllowCredentials};
             use axum::http::HeaderValue;
+            use tower_http::cors::{AllowCredentials, Any, CorsLayer};
             let mut layer = CorsLayer::new();
-            if let Some(origins) = &self.cors.origins {
+            // Tower rejects the wildcard in an origin list, so it has to be
+            // requested as "any" instead.
+            let wildcard = self
+                .cors
+                .origins
+                .as_ref()
+                .is_some_and(|origins| origins.iter().any(|origin| origin.trim() == "*"));
+            if wildcard {
+                layer = layer.allow_origin(Any);
+            } else if let Some(origins) = &self.cors.origins {
                 let origins: Vec<HeaderValue> = origins
                     .iter()
-                    .filter_map(|o| o.parse().ok())
+                    .filter_map(|origin| origin.parse().ok())
                     .collect();
                 if !origins.is_empty() {
                     layer = layer.allow_origin(origins);
@@ -133,6 +192,15 @@ impl FragmentApp {
             router = ctrl.register_routes(router);
         }
 
+        // Controllers that registered themselves with the framework.
+        for register in crate::core::routing::registered_controllers() {
+            router = register(router);
+        }
+
+        for register in &self.controllers {
+            router = register(router);
+        }
+
         let addr = format!("{}:{}", self.host, self.port);
         tracing::info!("listening on http://{}", addr);
 
@@ -140,9 +208,7 @@ impl FragmentApp {
             .await
             .expect("failed to bind");
 
-        axum::serve(listener, router)
-            .await
-            .expect("server error");
+        axum::serve(listener, router).await.expect("server error");
     }
 }
 

@@ -51,7 +51,9 @@ fragment-rs = { path = "../fragment-rs" }
 
 ## Writing Services
 
-`#[service]` auto-registers the type as a singleton.
+`#[service]` marks a type as a service. A service that derives `Default`
+registers itself, so the container finds it — see
+[Dependency Injection](#dependency-injection).
 
 ```rust
 use fragment_rs::service;
@@ -111,13 +113,16 @@ impl RequestScopedService {
 
 ## Writing Controllers
 
-`#[controller]` auto-registers routes. `#[route]` marks each handler.
+`#[controller]` turns a block of handlers into routes. `#[route]` marks each
+handler with its HTTP method and path.
 
 ```rust
-use fragment_rs::{controller, route};
+use fragment_rs::{controller, route, GET, POST};
 use fragment_rs::core::container::Inject;
 use fragment_rs::core::validation::ValidatedJson;
 use axum::{http::StatusCode, Json};
+
+struct CustomerController;
 
 #[controller("/api/customers")]
 impl CustomerController {
@@ -144,15 +149,36 @@ impl CustomerController {
 }
 ```
 
+Register the controller with the application so its routes are served:
+
+```rust
+FragmentApp::new()
+    .controller(CustomerController::register)
+    .start()
+    .await;
+```
+
+That call is optional: a controller registers itself, and the application
+finds every controller that did. Use it when you want to be explicit about the
+order the routes are added, or when a controller lives in another crate.
+
+The prefix and the route path are joined without a trailing slash, so
+`#[route(GET, "/")]` under the prefix `/api/customers` serves
+`GET /api/customers`. A path parameter is written in Axum's syntax:
+`#[route(GET, "/:id")]`.
+
 ### Supported HTTP Methods
 
 `GET`, `POST`, `PUT`, `DELETE`, `PATCH`
+
+The method constants come from `fragment_rs`, so they have to be imported.
 
 ---
 
 ## Dependency Injection
 
-Use `Inject<T>` as an Axum extractor.
+`Inject<T>` is an Axum extractor that resolves `T` from the dependency
+injection container.
 
 ```rust
 async fn my_handler(
@@ -161,6 +187,52 @@ async fn my_handler(
     // ...
 }
 ```
+
+### Registering a service
+
+`#[service]` marks a type as a service. A service that derives `Default`
+registers itself, so the container finds it without being told:
+
+```rust
+use fragment_rs::FragmentApp;
+
+#[service]
+#[derive(Default)]
+struct CustomerRepository {
+    customers: std::sync::Arc<std::sync::Mutex<Vec<Customer>>>,
+}
+
+#[tokio::main]
+async fn main() {
+    FragmentApp::new().port(3000).start().await;
+}
+```
+
+The container keeps one instance and hands out an `Arc` of it, so a service
+behaves as a singleton. Because the container hands out an `Arc`, a service that
+changes state needs interior mutability, such as an `Arc<Mutex<Vec<T>>>`.
+
+A service that cannot build itself — one that needs a database connection,
+say — has to be registered by hand:
+
+```rust
+FragmentApp::new()
+    .service(CustomerRepository::open_pool())
+    .start()
+    .await;
+```
+
+A factory registers the service lazily, on first use:
+
+```rust
+DIContainer::register_factory(|| CustomerRepository::open_pool());
+```
+
+`DIContainer::get::<T>()` returns the instance, and
+`DIContainer::has::<T>()` reports whether one is registered.
+
+If a service is not registered, `Inject<T>` answers with a `500` and a generic
+message; the underlying reason is written to the log.
 
 ### Built-in Extractors
 
@@ -196,7 +268,32 @@ struct CreateCustomerDto {
 
 ## Error Handling
 
-`#[exception_filter]` auto-registers a global error handler:
+`FragmentError` turns a failure into a safe JSON response. Internal failures
+are logged on the server and the client receives a generic message:
+
+```json
+{
+  "error": {
+    "code": "DATABASE_ERROR",
+    "message": "A database operation failed",
+    "details": null
+  }
+}
+```
+
+Return it from a handler with `?`:
+
+```rust
+use fragment_rs::FragmentError;
+
+async fn my_handler() -> Result<Json<Customer>, FragmentError> {
+    let customer = load_customer().await?;
+    Ok(Json(customer))
+}
+```
+
+`#[exception_filter]` marks a type as an exception filter. The trait is
+implemented for you:
 
 ```rust
 use fragment_rs::exception_filter;
@@ -230,6 +327,12 @@ async fn main() {
 }
 ```
 
+Controllers and services register themselves, so there is usually nothing to
+wire up. `service` puts an instance in the dependency injection container and
+`controller` registers a controller's routes; both are there for the cases the
+framework cannot handle on its own, such as a service that needs a connection
+of its own.
+
 ### FragmentApp Configuration
 
 ```rust
@@ -244,6 +347,8 @@ FragmentApp::new()
     .file_upload_max_size(10 * 1024 * 1024) // max file size in bytes
     .file_upload_allowed_types(vec!["image/png".into(), "image/jpeg".into()])
     .file_upload_max_files(10)            // max files per request
+    .service(CustomerRepository::default())   // a service in the container
+    .controller(CustomerController::register) // a controller's routes
     .start()
     .await;
 ```
@@ -260,7 +365,8 @@ cargo build --release && ./target/release/my-api
 
 ## Writing Tests
 
-Services and controllers auto-register. Tests build the app and fire requests directly.
+Register the services a test needs, then build the router and fire requests
+directly.
 
 ### Unit Testing
 
@@ -278,6 +384,8 @@ impl Default for TestService {
 
 #[test]
 fn test_service_resolved() {
+    DIContainer::register(TestService::default());
+
     let service = DIContainer::get::<TestService>();
     assert!(service.is_some());
     assert_eq!(service.unwrap().value, 42);
@@ -287,7 +395,7 @@ fn test_service_resolved() {
 ### Integration Testing
 
 ```rust
-use fragment_rs::{controller, route, FragmentApp, core::container::Inject};
+use fragment_rs::{controller, route, core::container::{DIContainer, Inject}, GET};
 use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 
@@ -296,8 +404,8 @@ struct TestCustomerRepo {
     customers: std::sync::Arc<std::sync::Mutex<Vec<Customer>>>,
 }
 
-impl TestCustomerRepo {
-    fn new() -> Self {
+impl Default for TestCustomerRepo {
+    fn default() -> Self {
         Self {
             customers: std::sync::Arc::new(std::sync::Mutex::new(vec![
                 Customer { id: "1".into(), name: "Alice".into() },
@@ -306,9 +414,7 @@ impl TestCustomerRepo {
     }
 }
 
-impl Default for TestCustomerRepo {
-    fn default() -> Self { Self::new() }
-}
+struct TestCustomerController;
 
 #[controller("/api/customers")]
 impl TestCustomerController {
@@ -326,15 +432,17 @@ async fn test_list_customers() {
     use http::Request;
     use tower::ServiceExt;
 
-    let mut router = axum::Router::new();
-    for ctrl in fragment_rs::core::container::DIContainer::auto_register_controllers() {
-        router = ctrl.register_routes(router);
-    }
+    DIContainer::register(TestCustomerRepo::default());
+
+    // The controller turns itself into routes.
+    let router = <TestCustomerController as fragment_rs::core::routing::Controller>::register_routes(
+        axum::Router::new(),
+    );
 
     let response = router
         .oneshot(
             Request::builder()
-                .uri("/api/customers/")
+                .uri("/api/customers")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -348,6 +456,10 @@ async fn test_list_customers() {
     assert_eq!(customers.len(), 1);
 }
 ```
+
+The prefix and the route path are joined without a trailing slash, so
+`#[route(GET, "/")]` under the prefix `/api/customers` answers
+`GET /api/customers`.
 
 Run tests:
 
@@ -444,22 +556,23 @@ fragment-rs/src/
   types/          # ClassMetadata, MethodMetadata, ParamMetadata, etc.
 ```
 
-### Auto-Registration Flow
+### Registration Flow
 
 ```
 compile time                    runtime (start())
     │                                  │
     ▼                                  ▼
-#[service]  ────── injects ──▶  register_service(|| ...)
-#[controller] ── injects ──▶  register_controller(|| ...)
+#[controller] ─── expands to ──▶  Controller::register_routes(router)
                                  │
                                  ▼
-                         DIContainer::auto_register_services()
                          DIContainer::auto_register_controllers()
                                  │
                                  ▼
                          FragmentApp wires middleware
                          axum::serve() binds TCP listener
+
+#[service] ─── marks the type ──▶  DIContainer::register(instance)
+                                 (called by the application)
 ```
 
 ### Request Flow
@@ -472,6 +585,6 @@ Request
         → Inject<T> extractor (resolves from DIContainer)
         → ValidatedJson<T> extractor (validates body)
         → Handler logic
-  → ExceptionFilter catches panics/errors
+  → FragmentError renders a safe JSON response
 Response
 ```
