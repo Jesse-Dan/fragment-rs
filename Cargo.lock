@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "frs-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sea-orm",
  "syn 2.0.117",
