@@ -1,0 +1,19 @@
+# Rust build output
+/target
+**/*.rs.bk
+*.pdb
+
+# Local SQLite databases created by the examples and tests
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+.env.local
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store

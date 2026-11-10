@@ -1,2 +1,0 @@
-fn(Json<CreateCustomer>, Inject<CustomerRepoWrapper>) -> impl Future<Output = (StatusCode, Json<Customer>)> {CustomerController::create_customer}
-fn(Json<CreateCustomer>, Inject<CustomerRepoWrapper>) -> impl Future<Output = (StatusCode, Json<Customer>)> {CustomerController::create_customer}: Handler<_, _>

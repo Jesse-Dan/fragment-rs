@@ -1,2 +1,0 @@
-FilterMap<std::slice::Iter<'_, std::string::String>, {closure@fragment-rs/src/platform/web/fragment_app.rs:154:71: 154:74}>
-AllowMethods: From<FilterMap<std::slice::Iter<'_, std::string::String>, {closure@fragment-rs/src/platform/web/fragment_app.rs:154:71: 154:74}>>
