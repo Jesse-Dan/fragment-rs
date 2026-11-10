@@ -95,8 +95,18 @@ publish_one() {
     exit 1
 }
 
+previous=""
 for crate in $CRATES; do
+    # crates.io needs a moment to index a crate before another crate can
+    # depend on it. Waiting here means the next crate resolves on the first
+    # attempt instead of failing and being retried.
+    if [ -n "$previous" ]; then
+        echo
+        echo "Waiting for crates.io to index $previous..."
+        sleep 60
+    fi
     publish_one "$crate"
+    previous=$crate
 done
 
 echo
