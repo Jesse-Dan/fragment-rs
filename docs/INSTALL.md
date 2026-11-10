@@ -44,6 +44,23 @@ FRS_REPO="owner/repository" \
 curl -fsSL https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install.sh | sh
 ```
 
+### A private repository
+
+A private repository needs a token to download its release assets. Set
+`GITHUB_TOKEN` and the installer uses it:
+
+```sh
+GITHUB_TOKEN=ghp_xxx \
+curl -fsSL https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install.sh | sh
+```
+
+```powershell
+$env:GITHUB_TOKEN = "ghp_xxx"
+irm https://raw.githubusercontent.com/Jesse-Dan/fragment-rs/main/scripts/install.ps1 | iex
+```
+
+The token needs read access to the repository.
+
 ## Supported platforms
 
 | Operating system | Architecture | Release asset |

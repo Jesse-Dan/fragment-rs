@@ -12,7 +12,16 @@ $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToS
 
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    Invoke-WebRequest -Uri "https://github.com/$repo/releases/latest/download/frs-windows-x64.zip" -OutFile "$tmp\frs.zip"
+    $url = "https://github.com/$repo/releases/latest/download/frs-windows-x64.zip"
+
+    # A private repository needs a token. A public one does not.
+    if ($env:GITHUB_TOKEN) {
+        Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN" } -OutFile "$tmp\frs.zip"
+    }
+    else {
+        Invoke-WebRequest -Uri $url -OutFile "$tmp\frs.zip"
+    }
+
     Expand-Archive -Path "$tmp\frs.zip" -DestinationPath $tmp -Force
 
     New-Item -ItemType Directory -Force -Path $dest | Out-Null

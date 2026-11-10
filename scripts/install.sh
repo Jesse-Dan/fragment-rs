@@ -20,7 +20,15 @@ esac
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-curl -fsSL "https://github.com/$REPO/releases/latest/download/$asset.tar.gz" -o "$tmp/frs.tar.gz"
+url="https://github.com/$REPO/releases/latest/download/$asset.tar.gz"
+
+# A private repository needs a token. A public one does not.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$url" -o "$tmp/frs.tar.gz"
+else
+    curl -fsSL "$url" -o "$tmp/frs.tar.gz"
+fi
+
 tar -xzf "$tmp/frs.tar.gz" -C "$tmp"
 
 mkdir -p "$DEST"
