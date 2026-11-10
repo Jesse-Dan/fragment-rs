@@ -1,5 +1,8 @@
 # Fragment Rust
 
+[![Release](https://img.shields.io/github/v/release/Jesse-Dan/fragment-rs)](https://github.com/Jesse-Dan/fragment-rs/releases/latest)
+[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
+
 Fragment Rust is a Spring Boot-inspired web framework built on Axum. It provides a Rust CLI, application scaffolding, controller and service macros, validation, structured errors, and SeaORM-backed multi-database access.
 
 > **Status:** Fragment Rust is under active development. Review the limitations in [the project structure guide](docs/PROJECT-STRUCTURE.md) before depending on features in production.
