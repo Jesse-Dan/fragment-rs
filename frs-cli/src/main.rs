@@ -1204,31 +1204,71 @@ fn framework_release_tag() -> String {
     format!("v{}", framework_version())
 }
 
+/// Where a generated project takes the framework from.
+///
+/// Once the crate is on crates.io, the project uses the published crate. Until
+/// then it takes the framework from the repository, at the release that
+/// matches this CLI.
+fn framework_dependency() -> String {
+    framework_dependency_for(crates_io_has_the_framework())
+}
+
+/// The dependency line for the framework.
+fn framework_dependency_for(published: bool) -> String {
+    if published {
+        format!("fragment-rs = \"{}\"", framework_version_requirement())
+    } else {
+        format!(
+            "fragment-rs = {{ version = \"{}\", git = \"{}\", tag = \"{}\" }}",
+            framework_version_requirement(),
+            FRAMEWORK_REPOSITORY,
+            framework_release_tag(),
+        )
+    }
+}
+
+/// Whether crates.io has a release of the framework that a project can use.
+///
+/// The answer is cached, so a project that makes several files does not ask
+/// the registry again.
+fn crates_io_has_the_framework() -> bool {
+    use std::sync::OnceLock;
+    static PUBLISHED: OnceLock<bool> = OnceLock::new();
+    *PUBLISHED.get_or_init(|| {
+        let url = "https://crates.io/api/v1/crates/fragment-rs";
+        let request = ureq::get(url)
+            .set(
+                "User-Agent",
+                "frs-cli (https://github.com/Jesse-Dan/fragment-rs)",
+            )
+            .timeout(std::time::Duration::from_secs(5));
+        match request.call() {
+            Ok(response) => response.status() == 200,
+            Err(_) => false,
+        }
+    })
+}
+
 fn project_manifest(name: &str) -> String {
     // `axum`, `serde` and `serde_json` are listed explicitly: the `#[controller]`
     // macro expands to `axum::Router` and generated handlers use `axum::Json`,
     // so they have to be direct dependencies of the application crate.
     //
-    // `fragment-rs` is not on crates.io yet, so it comes from the repository.
-    // The version requirement is still there, so dropping the `git` and
-    // `tag` parts switches the project over to the published crate.
-    //
     // The project is a workspace root so that the `migrations` crate created by
     // `frs make:migration` can be registered as a member.
     format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfragment-rs = {{ version = \"{}\", git = \"{}\", tag = \"{}\" }}\naxum = \"0.7\"\ntokio = {{ version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n\n[workspace]\nmembers = []\n",
-        framework_version_requirement(),
-        FRAMEWORK_REPOSITORY,
-        framework_release_tag(),
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{}\naxum = \"0.7\"\ntokio = {{ version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\nserde_json = \"1\"\n\n[workspace]\nmembers = []\n",
+        framework_dependency(),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        framework_release_tag, framework_version_requirement, generate_migration, make_component,
-        make_migration, make_module, project_manifest, scaffold_project, to_pascal_case,
-        to_snake_case, validate_package_name, Component, MigrationOptions, Structure,
+        framework_dependency_for, framework_release_tag, framework_version_requirement,
+        generate_migration, make_component, make_migration, make_module, project_manifest,
+        scaffold_project, to_pascal_case, to_snake_case, validate_package_name, Component,
+        MigrationOptions, Structure,
     };
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -1323,10 +1363,9 @@ mod tests {
         // The `#[controller]` macro expands to `axum::Router`, so axum has to
         // be a direct dependency of the generated application.
         assert!(manifest.contains("axum = \"0.7\""));
-        // The framework is not on crates.io yet, so it comes from the
-        // repository, at the release that matches this CLI.
-        assert!(manifest.contains("git = \"https://github.com/Jesse-Dan/fragment-rs\""));
-        assert!(manifest.contains(&format!("tag = \"{}\"", framework_release_tag())));
+        // The framework is always a direct dependency, from crates.io once it
+        // is published and from the repository until then.
+        assert!(manifest.contains("fragment-rs ="));
         assert!(manifest.contains("[workspace]"));
         let _ = std::fs::remove_dir_all(path);
     }
@@ -1535,18 +1574,33 @@ mod tests {
 
     #[test]
     fn the_manifest_points_at_the_framework_release() {
-        let manifest = project_manifest("demo");
-
-        // The framework is not on crates.io yet, so the project takes it from
-        // the repository, at the release that matches this CLI.
-        assert!(manifest.contains("git = \"https://github.com/Jesse-Dan/fragment-rs\""));
-        assert!(manifest.contains(&format!("tag = \"{}\"", framework_release_tag())));
-        // The version requirement stays, so dropping the git source switches
-        // the project over to the published crate.
-        assert!(manifest.contains(&format!(
+        // Until the crate is on crates.io, the project takes the framework
+        // from the repository, at the release that matches this CLI.
+        let dependency = framework_dependency_for(false);
+        assert!(dependency.contains("git = \"https://github.com/Jesse-Dan/fragment-rs\""));
+        assert!(dependency.contains(&format!("tag = \"{}\"", framework_release_tag())));
+        assert!(dependency.contains(&format!(
             "version = \"{}\"",
             framework_version_requirement()
         )));
+    }
+
+    #[test]
+    fn a_published_framework_comes_from_crates_io() {
+        // Once the crate is published, the project uses it like any other
+        // dependency.
+        let dependency = framework_dependency_for(true);
+        assert_eq!(
+            dependency,
+            format!("fragment-rs = \"{}\"", framework_version_requirement())
+        );
+        assert!(!dependency.contains("git"));
+    }
+
+    #[test]
+    fn the_manifest_always_depends_on_the_framework() {
+        let manifest = project_manifest("demo");
+        assert!(manifest.contains("fragment-rs ="));
     }
 
     #[test]
