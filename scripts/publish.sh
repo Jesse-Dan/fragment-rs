@@ -65,10 +65,23 @@ publish_one() {
     # a failure is retried for a while before giving up.
     attempt=1
     while [ "$attempt" -le 12 ]; do
-        if cargo publish --package "$crate" --allow-dirty; then
+        log=$(mktemp)
+        if cargo publish --package "$crate" --allow-dirty 2>&1 | tee "$log"; then
+            rm -f "$log"
             echo "Published $crate"
             return
         fi
+
+        # A token that is not accepted will not be accepted on the next
+        # attempt either, so there is no point in waiting.
+        if grep -qiE "invalid token|unauthorized|not authorized|401|403|forbidden|missing or invalid" "$log"; then
+            rm -f "$log"
+            echo "crates.io rejected the token. Check CARGO_REGISTRY_TOKEN in .env." >&2
+            echo "It needs the 'publish-new-crate' scope the first time." >&2
+            exit 1
+        fi
+        rm -f "$log"
+
         echo "Attempt $attempt failed. Waiting for crates.io to catch up..." >&2
         attempt=$((attempt + 1))
         sleep 30
